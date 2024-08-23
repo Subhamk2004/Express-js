@@ -1,14 +1,17 @@
 import express from "express";
+import cors from 'cors';
 import usersRouter from "./routes/users.mjs";
 import productsRouter from "./routes/products.mjs";
+import recieverRouter from "./routes/reciever.mjs";
 import { loggingMiddleware } from "./utils/middlewares.mjs";
 import cookieParser from "cookie-parser";
 import session from "express-session";
-import { testUsers } from "./utils/constants.mjs";
 import passport from "passport";
 import "./strategies/localStrategy.mjs";
 import mongoose from "mongoose";
 import MongoStore from "connect-mongo";
+import { createServer } from "http";
+import { Server } from 'socket.io'
 // import "./strategies/dicordStrategy.mjs";
 // express-validator provides a chainable API for defining validation rules.
 // You can use various validation methods like isInt, isEmail, isIn, etc.
@@ -18,6 +21,13 @@ import MongoStore from "connect-mongo";
 //meanwhile these function don't throw any errors, so we have to handle them ourselves if a query is not passed or is passed incorrectly.
 
 let app = express();
+app.use(cors());
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: ['http://127.0.0.1:5500', 'http://localhost:5500', 'http://localhost:5501', 'http://127.0.0.1:5501']
+  }
+});
 mongoose
   .connect("mongodb://localhost/expressDatabase")
   .then(() => console.log("Connected to MongoDB"))
@@ -44,6 +54,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 app.use(usersRouter);
 app.use(productsRouter);
+app.use(recieverRouter);
 
 // app.use(loggingMiddleware);
 // if we don't want to use the middleware globally then we can also pass it specifically to some methods only,
@@ -90,10 +101,33 @@ app.use(productsRouter);
 
 // cookies are nothing but small pieces of data which is used to store sessions etc;
 // This data is sent by the web server to the browser
-//
-const PORT = process.env.PORT || 6000;
+let users = {};
+io.on("connection", (socket) => {
+  socket.on('register', (data) => {
+    console.log(data);
+    users[data.from] = socket.id;
+    // users[data.from] = socket.id;
+    console.log(users);
+  })
+  socket.on('message', (data) => {
+    if (data.to && data.text) {
+      const targetedSocketId = users[data.to];
+      console.log('Targeted Socket Id: ', targetedSocketId);
 
-app.listen(PORT, () => {
+      if (targetedSocketId) {
+        console.log(targetedSocketId);
+        socket.to(targetedSocketId).emit('recieve', {
+          text: data.text
+        });
+      }
+    }
+  })
+
+});
+//
+const PORT = process.env.PORT || 5000;
+
+httpServer.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 
   // The code you provided is the part of an Express application that starts the server and logs a message to the console when it's ready to accept requests.
@@ -229,3 +263,10 @@ app.get("/api/cart", (req, res) => {
 // the connection becomes active only between the req sent and res recieved time period
 
 // so for real time data transfer we need to use web sockets, and we will be using socket.io for that.
+
+
+//////////// Web Sockets //////////////
+
+// the initial connection btw client and server is handshake which happens only once
+// if cinnection is success then our data can flow btw server and client
+// it is like a phone call first a person has to call someone once the call is connected then the data between the two can flow easily
